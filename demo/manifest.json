@@ -1,10 +1,10 @@
 {
   "manifest_version": 2,
 
-  "name": "Serial Monitor",
-  "description": "Monitors your serial port and allows you to read and write to it like you could with Arduino's IDE.",
+  "name": "Pitch Detector + SerialPort",
+  "description": "Pitch detection and send it to serial port",
 
-  "version": "1.0.5",
+  "version": "0.1.0",
 
   "app": {
     "background": {
@@ -12,13 +12,8 @@
     }
   },
 
-  "icons": {
-    "16": "extentionAssets/icon-16x16.jpeg",
-    "128": "extentionAssets/icon-128x128.jpeg"
-  },
-
   "permissions": [
-    "serial"
+    "serial",
+    "audioCapture"
   ]
-
 }
