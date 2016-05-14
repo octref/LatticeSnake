@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
 
-  "name": "Pitch Detector + SerialPort",
-  "description": "Pitch detection and send it to serial port",
+  "name": "2D Snake",
+  "description": "2D Snake game - Chrome part",
 
   "version": "0.1.0",
 

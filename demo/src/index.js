@@ -36,6 +36,10 @@ SerialPortLib.list(function(err, ports) {
 	}
 });
 
+let snakeGame;
+let msCount = 0;
+
+// Connect to the port
 function connect(port) {
 	var sp = new SerialPort(port, {
     baudrate: BAUD,
@@ -47,6 +51,8 @@ function connect(port) {
 
 	sp.on('open', function() {
 		dashboard.textContent += 'Connection open\n';
+    snakeGame = new Game();
+    dashboard.textContent += 'Game inited\n';
 	});
 
 	sp.on('error', function(string) {
@@ -54,8 +60,34 @@ function connect(port) {
 	});
 
 	sp.on('data', function(data) {
-    console.log('Received: ' + data);
 		received.textContent += data.toString();
+    if (data.toString()[0] != 'd') {
+      const [hor, ver, spa] = data.toString().split(',');
+
+      let nextDir = snakeGame.dir;
+      if (hor > 3000) {
+        nextDir = 'L';
+      } else if (hor < 1000) {
+        nextDir = 'R';
+      }
+
+      if (ver > 3000) {
+        nextDir = 'F';
+      } else if (ver < 1000) {
+        nextDir = 'B';
+      }
+
+      if (spa > 3000) {
+        nextDir = 'U';
+      } else if (spa < 1000) {
+        nextDir = 'D';
+      }
+      if (_.includes(['UD', 'DU', 'LR', 'RL', 'FB', 'BF'], snakeGame.dir + nextDir)) {
+        return;
+      }
+      snakeGame.dir = nextDir;
+      console.log('Dir: ', snakeGame.dir);
+    }
 	});
 
 	function send() {
@@ -67,16 +99,13 @@ function connect(port) {
 	}
 
   function sendData() {
-    var relNote = analyzePitch();
-    var vol = analyzeVolume();
-
-    if (relNote < 10) {
-      var line = '0' + relNote +  vol + '\n';
-    } else {
-      var line = '' + relNote + vol + '\n';
+    if (msCount * STEP_MS % FREQ == 0) {
+      snakeGame.next();
+      snakeGame.print();
+      sp.write(snakeGame.toSignal());
+      dashboard.textContent += 'Sent ' + snakeGame.toSignal();
     }
-    sp.write(line);
-    dashboard.textContent += 'Sent ' + line;
+    msCount++;
   }
 
 	document.getElementById('sp-send').addEventListener('click', send);
@@ -90,308 +119,144 @@ function connect(port) {
       clearInterval(sendDataInterval);
       sendDataInterval = null;
     } else {
-      sendDataInterval = setInterval(sendData, 100);
+      sendDataInterval = setInterval(sendData, FREQ);
     }
   };
 }
 
-/*
- * Pitch Detection
- */
-window.AudioContext = window.AudioContext || window.webkitAudioContext;
+// The snake game
 
-var audioContext = null;
-var isPlaying = false;
-var sourceNode = null;
-var analyser = null;
-var theBuffer = null;
-var DEBUGCANVAS = null;
-var mediaStreamSource = null;
-var detectorElem, 
-  canvasElem,
-  waveCanvas,
-  pitchElem,
-  noteElem,
-  detuneElem,
-  detuneAmount;
+// Frequency of refresh in ms
+const STEP_MS = 500;
+const FREQ = 50;
 
-window.onload = function() {
-  audioContext = new AudioContext();
-  MAX_SIZE = Math.max(4,Math.floor(audioContext.sampleRate/5000));  // corresponds to a 5kHz signal
-
-  detectorElem = document.getElementById("detector");
-  canvasElem = document.getElementById("output");
-  DEBUGCANVAS = document.getElementById("waveform");
-  if (DEBUGCANVAS) {
-    waveCanvas = DEBUGCANVAS.getContext("2d");
-    waveCanvas.strokeStyle = "black";
-    waveCanvas.lineWidth = 1;
+class Game {
+  constructor() {
+    this.snake = [[1, 1, 1], [1, 2, 1], [1, 3, 1], [1, 4, 1]];
+    this.target = [4, 4, 2];
+    this.dir = 'U';
+    this.alive = true;
   }
-  pitchElem = document.getElementById("pitch");
-  noteElem = document.getElementById("note");
-  detuneElem = document.getElementById("detune");
-  detuneAmount = document.getElementById("detune_amt");
 
-  // Bind events to buttons
-  document.getElementById('live-input').onclick = toggleLiveInput;
-  var printDataInterval = null;
-  document.getElementById('print-data').onclick = () => {
-    if (printDataInterval) {
-      clearInterval(printDataInterval);
-      printDataInterval = null;
-    } else {
-      printDataInterval = setInterval(() => {
-        console.log(analyzePitch());
-        console.log(analyzeVolume());
-      }, 100);
-    }
-  };
-};
-
-function getUserMedia(dictionary, callback) {
-  try {
-    navigator.getUserMedia = 
-      navigator.getUserMedia ||
-      navigator.webkitGetUserMedia ||
-      navigator.mozGetUserMedia;
-    navigator.getUserMedia(dictionary, callback, function() {
-      alert('Stream generation failed.');
+  print() {
+    _.forEach(this.snake, (point) => {
+      console.log(point.join(','));
     });
-  } catch (e) {
-    alert('getUserMedia threw exception :' + e);
-  }
-}
-
-function gotStream(stream) {
-  // Create an AudioNode from the stream.
-  mediaStreamSource = audioContext.createMediaStreamSource(stream);
-
-  // Connect it to the destination.
-  analyser = audioContext.createAnalyser();
-  analyser.fftSize = 2048;
-  mediaStreamSource.connect(analyser);
-  updatePitch();
-}
-
-function toggleLiveInput() {
-    if (isPlaying) {
-      // Stop playing and return
-      sourceNode.stop(0);
-      sourceNode = null;
-      analyser = null;
-      isPlaying = false;
-
-    if (!window.cancelAnimationFrame)
-      window.cancelAnimationFrame = window.webkitCancelAnimationFrame;
-      window.cancelAnimationFrame(rafID);
-    }
-
-    getUserMedia({
-      "audio": {
-        "mandatory": {
-          "googEchoCancellation": "false",
-          "googAutoGainControl": "false",
-          "googNoiseSuppression": "false",
-          "googHighpassFilter": "false"
-        },
-        "optional": []
-      }
-    }, gotStream);
-}
-
-var rafID = null;
-var tracks = null;
-var buflen = 1024;
-var buf = new Float32Array(buflen);
-
-var noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-function noteFromPitch( frequency ) {
-  var noteNum = 12 * (Math.log(frequency / 440) / Math.log(2) );
-  return Math.round(noteNum) + 69;
-}
-
-function frequencyFromNoteNumber( note ) {
-  return 440 * Math.pow(2,(note - 69) / 12);
-}
-
-function centsOffFromPitch( frequency, note ) {
-  return Math.floor(1200 * Math.log(frequency / frequencyFromNoteNumber(note)) / Math.log(2) );
-}
-
-// this is a float version of the algorithm below - but it's not currently used.
-/*
-function autoCorrelateFloat( buf, sampleRate ) {
-  var MIN_SAMPLES = 4;  // corresponds to an 11kHz signal
-  var MAX_SAMPLES = 1000; // corresponds to a 44Hz signal
-  var SIZE = 1000;
-  var best_offset = -1;
-  var best_correlation = 0;
-  var rms = 0;
-
-  if (buf.length < (SIZE + MAX_SAMPLES - MIN_SAMPLES))
-    return -1;  // Not enough data
-
-  for (var i=0;i<SIZE;i++)
-    rms += buf[i]*buf[i];
-  rms = Math.sqrt(rms/SIZE);
-
-  for (var offset = MIN_SAMPLES; offset <= MAX_SAMPLES; offset++) {
-    var correlation = 0;
-
-    for (var i=0; i<SIZE; i++) {
-      correlation += Math.abs(buf[i]-buf[i+offset]);
-    }
-    correlation = 1 - (correlation/SIZE);
-    if (correlation > best_correlation) {
-      best_correlation = correlation;
-      best_offset = offset;
-    }
-  }
-  if ((rms>0.1)&&(best_correlation > 0.1)) {
-    console.log("f = " + sampleRate/best_offset + "Hz (rms: " + rms + " confidence: " + best_correlation + ")");
-  }
-//  var best_frequency = sampleRate/best_offset;
-}
-*/
-
-var MIN_SAMPLES = 0;  // will be initialized when AudioContext is created.
-
-function autoCorrelate(buf, sampleRate) {
-  var SIZE = buf.length;
-  var MAX_SAMPLES = Math.floor(SIZE/2);
-  var best_offset = -1;
-  var best_correlation = 0;
-  var rms = 0;
-  var foundGoodCorrelation = false;
-  var correlations = new Array(MAX_SAMPLES);
-
-  for (var i = 0;i < SIZE; i++) {
-    var val = buf[i];
-    rms += val * val;
-  }
-  rms = Math.sqrt(rms / SIZE);
-  if (rms < 0.01) // not enough signal
-    return -1;
-
-  var lastCorrelation=1;
-  for (var offset = MIN_SAMPLES; offset < MAX_SAMPLES; offset++) {
-    var correlation = 0;
-
-    for (var i = 0; i < MAX_SAMPLES; i++) {
-      correlation += Math.abs(buf[i] - buf[i+offset]);
-    }
-    correlation = 1 - (correlation / MAX_SAMPLES);
-    correlations[offset] = correlation; // store it, for the tweaking we need to do below.
-    if ((correlation > 0.9) && (correlation > lastCorrelation)) {
-      foundGoodCorrelation = true;
-      if (correlation > best_correlation) {
-        best_correlation = correlation;
-        best_offset = offset;
-      }
-    } else if (foundGoodCorrelation) {
-      // short-circuit - we found a good correlation, then a bad one, so we'd just be seeing copies from here.
-      // Now we need to tweak the offset - by interpolating between the values to the left and right of the
-      // best offset, and shifting it a bit.  This is complex, and HACKY in this code (happy to take PRs!) -
-      // we need to do a curve fit on correlations[] around best_offset in order to better determine precise
-      // (anti-aliased) offset.
-
-      // we know best_offset >=1, 
-      // since foundGoodCorrelation cannot go to true until the second pass (offset=1), and 
-      // we can't drop into this clause until the following pass (else if).
-      var shift = (correlations[best_offset + 1] - correlations[best_offset - 1]) / correlations[best_offset];  
-      return sampleRate / (best_offset + (8 * shift));
-    }
-    lastCorrelation = correlation;
-  }
-  if (best_correlation > 0.01) {
-    // console.log("f = " + sampleRate/best_offset + "Hz (rms: " + rms + " confidence: " + best_correlation + ")")
-    return sampleRate/best_offset;
-  }
-  return -1;
-//  var best_frequency = sampleRate/best_offset;
-}
-
-function updatePitch() {
-  var cycles = new Array;
-  analyser.getFloatTimeDomainData(buf);
-  var ac = autoCorrelate(buf, audioContext.sampleRate);
-  // TODO: Paint confidence meter on canvasElem here.
-
-  if (DEBUGCANVAS) {  // This draws the current waveform, useful for debugging
-    waveCanvas.clearRect(0, 0, 512, 256);
-    waveCanvas.strokeStyle = "red";
-    waveCanvas.beginPath();
-    waveCanvas.moveTo(0,0);
-    waveCanvas.lineTo(0,256);
-    waveCanvas.moveTo(128,0);
-    waveCanvas.lineTo(128,256);
-    waveCanvas.moveTo(256,0);
-    waveCanvas.lineTo(256,256);
-    waveCanvas.moveTo(384,0);
-    waveCanvas.lineTo(384,256);
-    waveCanvas.moveTo(512,0);
-    waveCanvas.lineTo(512,256);
-    waveCanvas.stroke();
-    waveCanvas.strokeStyle = "black";
-    waveCanvas.beginPath();
-    waveCanvas.moveTo(0,buf[0]);
-    for (var i=1;i<512;i++) {
-      waveCanvas.lineTo(i,128+(buf[i]*128));
-    }
-    waveCanvas.stroke();
+    console.log(this.alive ? 'alive' : 'dead');
+    console.log(this.dir);
   }
 
-  if (ac == -1) {
-    detectorElem.className = "vague";
-    pitchElem.innerText = "--";
-    noteElem.innerText = "-";
-    detuneElem.className = "";
-    detuneAmount.innerText = "--";
-  } else {
-    detectorElem.className = "confident";
-    pitch = ac;
-    pitchElem.innerText = Math.round(pitch) ;
-    var note = noteFromPitch( pitch );
-    noteElem.innerHTML = noteStrings[note%12];
-    var detune = centsOffFromPitch(pitch, note);
-    if (detune == 0) {
-      detuneElem.className = "";
-      detuneAmount.innerHTML = "--";
+  getSeq(point) {
+    const [x, y, z] = point;
+    let xy, seq;
+    if (y % 2 == 0) {
+      xy = y * 8 + x;
     } else {
-      if (detune < 0)
-        detuneElem.className = "flat";
-      else
-        detuneElem.className = "sharp";
-      detuneAmount.innerHTML = Math.abs( detune );
+      xy = y * 8 + (7 - x);
     }
+
+    if (z % 2 == 0) {
+      seq = z * 64 + xy;
+    } else {
+      seq = z * 64 + (63 - xy);
+    }
+    return seq;
+  }
+  
+  // Transform to signal for Photon to process
+  toSignal() {
+    let s = _.fill(Array(256), '0');
+
+    // Set snake
+    _.forEach(this.snake, (point) => {
+      const seq = this.getSeq(point);
+      s[seq] = '1';
+    });
+
+    // Set target
+    s[this.getSeq(this.target)] = '2';
+
+    return s.join('') + '\n';
   }
 
-  if (!window.requestAnimationFrame)
-    window.requestAnimationFrame = window.webkitRequestAnimationFrame;
-  rafID = window.requestAnimationFrame(updatePitch);
+  randomTarget() {
+    let x = _.random(7),
+        y = _.random(7),
+        z = _.random(3);
+
+    while (this.isPointInSnake([x, y, z], this.snake)) {
+      x = _.random(7),
+      y = _.random(7),
+      z = _.random(3);
+    }
+    this.target = [x, y, z];
+  }
+
+  isPointInSnake(point, snake) {
+    return _.find(snake, (p) => {
+      return p[0] == point[0] &&
+             p[1] == point[1] &&
+             p[2] == point[2];
+    })
+  }
+
+  isEqualPoints(pa, pb) {
+    return pa[0] == pb[0] &&
+           pa[1] == pb[1] &&
+           pa[2] == pb[2];
+  }
+
+  next() {
+    const [tailX, tailY, tailZ] = _.first(this.snake);
+    const [headX, headY, headZ] = _.last(this.snake);
+
+    const nextSnake = _.drop(_.cloneDeep(this.snake));
+
+    // Early return if dead
+    if (this.dir == 'U' && headY == 7 || this.dir == 'D' && headY == 0 ||
+        this.dir == 'L' && headX == 0 || this.dir == 'R' && headX == 7 ||
+        this.dir == 'F' && headZ == 3 || this.dir == 'B' && headZ == 0) {
+      this.alive = false;
+      return;
+    }
+
+    let nextPoint;
+    switch (this.dir) {
+      case 'U':
+        nextPoint = [headX, headY + 1, headZ];
+        break;
+      case 'D':
+        nextPoint = [headX, headY - 1, headZ];
+        break;
+      case 'L':
+        nextPoint = [headX - 1, headY, headZ];
+        break;
+      case 'R':
+        nextPoint = [headX + 1, headY, headZ];
+        break;
+      case 'F':
+        nextPoint = [headX, headY, headZ + 1];
+        break;
+      case 'B':
+        nextPoint = [headX, headY, headZ - 1];
+        break;
+    }
+
+    // Head to body
+    if (this.isPointInSnake(nextPoint, nextSnake)) {
+      this.alive = false;
+      return;
+    }
+
+    // If capturing the target, generate a new target
+    if (this.isEqualPoints(nextPoint, this.target)) {
+      this.randomTarget();
+      this.snake.push(nextPoint);
+    } else {
+      nextSnake.push(nextPoint);
+      this.snake = nextSnake;
+    }
+  }
 }
 
-// relNote 0 - 12
-function analyzePitch() {
-  analyser.getFloatTimeDomainData(buf);
-  var ac = autoCorrelate(buf, audioContext.sampleRate);
-
-  var pitch = ac,
-      pitchStr = Math.round(pitch),
-      note = noteFromPitch(pitch),
-      relNote = note % 12,
-      noteStr = noteStrings[relNote],
-      detune = centsOffFromPitch(pitch, note);
-  
-  if (isNaN(relNote)) { relNote = 0; }
-
-  return relNote;
-}
-
-// 0 - 40 -> 1 - 4 for now
-function analyzeVolume() {
-  var vol = Math.ceil(Math.abs(_.mean(buf) * 500));
-  if (vol > 4) { vol = 4; }
-  return vol;
-}
+window.Game = Game;
