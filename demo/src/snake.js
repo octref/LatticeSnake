@@ -1,12 +1,82 @@
-// The snake game
+/*
+ * The snake game
+ */
+
+const CTL_LOWER = 4096 / 4;
+const CTL_UPPER = 4096 / 4 * 3;
+const CTL_MID = 4096 / 2;
+
+const HAPPY_FACE = [[2, 1, 0], [3, 1, 0], [4, 1, 0], [5, 1, 0],
+                    [1, 2, 0], [6, 2, 0],
+                    [1, 4, 0], [2, 4, 0], [5, 4, 0], [6, 4, 0],
+                    [1, 5, 0], [2, 5, 0], [5, 5, 0], [6, 5, 0]];
+const SAD_FACE = [[1, 1, 0], [6, 1, 0],
+                  [2, 2, 0], [3, 2, 0], [4, 2, 0], [5, 2, 0],
+                  [1, 4, 0], [2, 4, 0], [5, 4, 0], [6, 4, 0],
+                  [1, 5, 0], [2, 5, 0], [5, 5, 0], [6, 5, 0]];
 
 class SnakeGame {
-  constructor() {
-    this.snake = [[1, 1, 1], [1, 2, 1], [1, 3, 1], [1, 4, 1]];
+  constructor(sp, difficulty) {
+    this.sp = sp;
+    // When sp in game is writing
+    this.spActive = false;
+
+    this.sendDataInterval = null;
+    this.sendCount = 0;
+
+    this.difficulty = difficulty;
+    if (difficulty == 'easy') {
+      this.settings = {
+        FREQ: 50,
+        STEP_MS: 1000
+      };
+    } else if (difficulty == 'hard') {
+      this.settings = {
+        FREQ: 50,
+        STEP_MS: 800
+      };
+    } else {
+      this.settings = {
+        FREQ: 50,
+        STEP_MS: 400
+      };
+    }
+
+    this.snake = [[1, 1, 1], [1, 2, 1], [1, 3, 1]];
     this.target = [4, 4, 2];
     this.dir = 'U';
     this.alive = true;
   }
+
+  reset() {
+    this.snake = [[1, 1, 1], [1, 2, 1], [1, 3, 1]];
+    this.target = [4, 4, 2];
+    this.dir = 'U';
+    this.alive = true;
+  }
+
+  /*
+   * Transform to signal for Photon to process
+   */
+
+  toSignal() {
+    let s = _.fill(Array(256), '0');
+
+    // Set snake
+    _.forEach(this.snake, (point) => {
+      const seq = this.getSeq(point);
+      s[seq] = '1';
+    });
+
+    // Set target
+    s[this.getSeq(this.target)] = '2';
+
+    return s.join('') + '\n';
+  }
+
+  /*
+   * Helper
+   */
 
   print() {
     _.forEach(this.snake, (point) => {
@@ -31,22 +101,6 @@ class SnakeGame {
       seq = z * 64 + (63 - xy);
     }
     return seq;
-  }
-
-  // Transform to signal for Photon to process
-  toSignal() {
-    let s = _.fill(Array(256), '0');
-
-    // Set snake
-    _.forEach(this.snake, (point) => {
-      const seq = this.getSeq(point);
-      s[seq] = '1';
-    });
-
-    // Set target
-    s[this.getSeq(this.target)] = '2';
-
-    return s.join('') + '\n';
   }
 
   randomTarget() {
@@ -76,6 +130,52 @@ class SnakeGame {
            pa[2] == pb[2];
   }
 
+  /*
+   * Game Lifecycle
+   */
+
+  dieAndRevive() {
+    if (this.difficulty != 'easy') {
+      this.spActive = true;
+
+      let s = _.fill(Array(256), '0');
+
+      // Set sad face
+      _.forEach(SAD_FACE, (point) => {
+        const seq = this.getSeq(point);
+        s[seq] = '2';
+      });
+      this.sp.write(s.join('') + '\n');
+
+      setTimeout(() => {
+        this.reset();
+        this.spActive = false;
+      }, 3000);
+    }
+  }
+
+  win() {
+    this.spActive = true;
+    let s = _.fill(Array(256), '0');
+
+    // Set happy face
+    _.forEach(HAPPY_FACE, (point) => {
+      const seq = this.getSeq(point);
+      s[seq] = '3';
+    });
+    this.sp.write(s.join('') + '\n');
+
+    setTimeout(() => {
+      this.reset();
+      this.spActive = false;
+    }, 3000);
+
+  }
+
+  /*
+   * Next game state
+   */
+
   next() {
     const [tailX, tailY, tailZ] = _.first(this.snake);
     const [headX, headY, headZ] = _.last(this.snake);
@@ -87,6 +187,7 @@ class SnakeGame {
         this.dir == 'L' && headX == 0 || this.dir == 'R' && headX == 7 ||
         this.dir == 'F' && headZ == 3 || this.dir == 'B' && headZ == 0) {
       this.alive = false;
+      this.dieAndRevive();
       return;
     }
 
@@ -115,6 +216,7 @@ class SnakeGame {
     // Head to body
     if (this.isPointInSnake(nextPoint, nextSnake)) {
       this.alive = false;
+      this.dieAndRevive();
       return;
     }
 
@@ -122,9 +224,71 @@ class SnakeGame {
     if (this.isEqualPoints(nextPoint, this.target)) {
       this.randomTarget();
       this.snake.push(nextPoint);
+      // If the length is 8, we win!
+      if (this.snake.length == 8) {
+        this.win();
+      }
     } else {
       nextSnake.push(nextPoint);
       this.snake = nextSnake;
+    }
+  }
+
+  /*
+   * SerialPort data methods
+   */
+  onData(data) {
+    const [hor, ver, spa] = data.toString().split(',');
+
+    let nextDir = this.dir;
+
+    if (Math.abs(hor - CTL_MID) > Math.abs(ver - CTL_MID)) {
+      if (hor > CTL_UPPER) {
+        nextDir = 'L';
+      } else if (hor < CTL_LOWER) {
+        nextDir = 'R';
+      }
+    } else {
+      if (ver > CTL_UPPER) {
+        nextDir = 'F';
+      } else if (ver < CTL_LOWER) {
+        nextDir = 'B';
+      }
+    }
+
+    if (spa > CTL_UPPER) {
+      nextDir = 'U';
+    } else if (spa < CTL_LOWER) {
+      nextDir = 'D';
+    }
+
+    if (_.includes(['UD', 'DU', 'LR', 'RL', 'FB', 'BF'], this.dir + nextDir)) {
+      return;
+    }
+    this.dir = nextDir;
+    console.log('Dir: ', this.dir);
+  }
+
+  sendData() {
+    if (!this.spActive) {
+      const { FREQ, STEP_MS } = this.settings;
+      if (this.sendCount * FREQ % STEP_MS == 0) {
+        this.next();
+        this.print();
+        if (!this.spActive) {
+          this.sp.write(this.toSignal());
+        }
+      }
+      this.sendCount++;
+    }
+  }
+
+  toggleData() {
+    if (this.sendDataInterval) {
+      clearInterval(this.sendDataInterval);
+      this.sendDataInterval = null;
+    } else {
+      this.sendDataInterval = setInterval(this.sendData.bind(this), this.settings.FREQ);
     }
   }
 }
