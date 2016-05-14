@@ -15,6 +15,18 @@ const SAD_FACE = [[1, 1, 0], [6, 1, 0],
                   [1, 4, 0], [2, 4, 0], [5, 4, 0], [6, 4, 0],
                   [1, 5, 0], [2, 5, 0], [5, 5, 0], [6, 5, 0]];
 
+const SNAKE_LOGO = [[3, 1, 0], [4, 1, 0],
+                    [2, 2, 0], [5, 2, 0],
+                    [4, 3, 0],
+                    [3, 4, 0],
+                    [2, 5, 0], [5, 5, 0],
+                    [3, 6, 0], [4, 6, 0]];
+
+const bgm = new Audio('bgm.mp3');
+const bite = new Audio('bite.mp3');
+const win = new Audio('win.mp3');
+const lose = new Audio('lose.mp3');
+
 class SnakeGame {
   constructor(sp, difficulty) {
     this.sp = sp;
@@ -28,7 +40,7 @@ class SnakeGame {
     if (difficulty == 'easy') {
       this.settings = {
         FREQ: 50,
-        STEP_MS: 1000
+        STEP_MS: 500
       };
     } else if (difficulty == 'hard') {
       this.settings = {
@@ -46,6 +58,8 @@ class SnakeGame {
     this.target = [4, 4, 2];
     this.dir = 'U';
     this.alive = true;
+
+    this.start();
   }
 
   reset() {
@@ -53,6 +67,8 @@ class SnakeGame {
     this.target = [4, 4, 2];
     this.dir = 'U';
     this.alive = true;
+
+    bgm.play();
   }
 
   /*
@@ -134,7 +150,29 @@ class SnakeGame {
    * Game Lifecycle
    */
 
+  start() {
+    bgm.play();
+
+    this.spActive = true;
+
+    let s = _.fill(Array(256), '0');
+
+    // Set logo
+    _.forEach(SNAKE_LOGO, (point) => {
+      const seq = this.getSeq(point);
+      s[seq] = '1';
+    });
+    this.sp.write(s.join('') + '\n');
+
+    setTimeout(() => {
+      this.reset();
+      this.spActive = false;
+    }, 3000);
+  }
+
   dieAndRevive() {
+    lose.play();
+
     if (this.difficulty != 'easy') {
       this.spActive = true;
 
@@ -155,6 +193,8 @@ class SnakeGame {
   }
 
   win() {
+    win.play();
+
     this.spActive = true;
     let s = _.fill(Array(256), '0');
 
@@ -186,8 +226,10 @@ class SnakeGame {
     if (this.dir == 'U' && headY == 7 || this.dir == 'D' && headY == 0 ||
         this.dir == 'L' && headX == 0 || this.dir == 'R' && headX == 7 ||
         this.dir == 'F' && headZ == 3 || this.dir == 'B' && headZ == 0) {
-      this.alive = false;
-      this.dieAndRevive();
+      if (this.difficulty != 'easy') {
+        this.alive = false;
+        this.dieAndRevive();
+      }
       return;
     }
 
@@ -215,13 +257,17 @@ class SnakeGame {
 
     // Head to body
     if (this.isPointInSnake(nextPoint, nextSnake)) {
-      this.alive = false;
-      this.dieAndRevive();
+      if (!this.difficulty != 'easy') {
+        this.alive = false;
+        this.dieAndRevive();
+      }
       return;
     }
 
     // If capturing the target, generate a new target
     if (this.isEqualPoints(nextPoint, this.target)) {
+      bite.play();
+      
       this.randomTarget();
       this.snake.push(nextPoint);
       // If the length is 8, we win!
@@ -284,12 +330,61 @@ class SnakeGame {
   }
 
   toggleData() {
-    if (this.sendDataInterval) {
-      clearInterval(this.sendDataInterval);
-      this.sendDataInterval = null;
-    } else {
-      this.sendDataInterval = setInterval(this.sendData.bind(this), this.settings.FREQ);
-    }
+    this.spActive = true;
+
+    let s = _.fill(Array(256), '0');
+    let s1 = _.fill(Array(256), '0');
+    let s2 = _.fill(Array(256), '0');
+    let s3 = _.fill(Array(256), '0');
+
+    _.forEach(SNAKE_LOGO, (point) => {
+      const seq = this.getSeq(point);
+      s[seq] = '1';
+    });
+    _.forEach(SNAKE_LOGO, (point) => {
+      const seq = this.getSeq([point[0], point[1], point[2] + 1]);
+      s1[seq] = '2';
+    });
+    _.forEach(SNAKE_LOGO, (point) => {
+      const seq = this.getSeq([point[0], point[1], point[2] + 2]);
+      s2[seq] = '3';
+    });
+    _.forEach(SNAKE_LOGO, (point) => {
+      const seq = this.getSeq([point[0], point[1], point[2] + 3]);
+      s3[seq] = '4';
+    });
+
+    this.sp.write(s.join('') + '\n');
+    setTimeout(() => {
+      this.reset();
+      this.spActive = false;
+      this.sp.write(s1.join('') + '\n');
+    }, 1000);
+
+    setTimeout(() => {
+      this.reset();
+      this.spActive = false;
+      this.sp.write(s2.join('') + '\n');
+    }, 2000);
+
+    setTimeout(() => {
+      this.reset();
+      this.spActive = false;
+      this.sp.write(s3.join('') + '\n');
+    }, 3000);
+
+    setTimeout(() => {
+      this.reset();
+      this.spActive = false;
+
+      if (this.sendDataInterval) {
+        clearInterval(this.sendDataInterval);
+        this.sendDataInterval = null;
+      } else {
+        this.sendDataInterval = setInterval(this.sendData.bind(this), this.settings.FREQ);
+      }
+    }, 4000);
+
   }
 }
 

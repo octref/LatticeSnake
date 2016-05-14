@@ -1,6 +1,7 @@
 var _ = require('lodash');
 
 var Game = require('./snake');
+// var Game = require('./shoot');
 
 /*
  * SerialPort + Communication with Photon
@@ -11,7 +12,7 @@ var SerialPort = SerialPortLib.SerialPort;
 
 var BAUD = 9600;
 
-let snakeGame;
+let game;
 
 function setup() {
   SerialPortLib.list(function(err, ports) {
@@ -56,7 +57,7 @@ function connect(port) {
 
     const difficultyEl = document.getElementById('sp-difficulty');
     const difficulty = difficultyEl.options[difficultyEl.selectedIndex].value;
-    snakeGame = new Game(sp, difficulty);
+    game = new Game(sp, difficulty);
     dashboard.textContent += 'Game inited\n';
 	});
 
@@ -67,12 +68,12 @@ function connect(port) {
 	sp.on('data', function(data) {
 		received.textContent += data.toString();
     if (data.toString()[0] != 'd') {
-      snakeGame.onData(data);
+      game.onData(data);
     }
 	});
 
   document.getElementById('sp-send-data').onclick = () => {
-    snakeGame.toggleData();
+    game.toggleData();
   };
 }
 
