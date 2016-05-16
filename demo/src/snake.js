@@ -40,12 +40,12 @@ class SnakeGame {
     if (difficulty == 'easy') {
       this.settings = {
         FREQ: 50,
-        STEP_MS: 500
+        STEP_MS: 250
       };
     } else if (difficulty == 'hard') {
       this.settings = {
         FREQ: 50,
-        STEP_MS: 800
+        STEP_MS: 1200
       };
     } else {
       this.settings = {
@@ -55,7 +55,7 @@ class SnakeGame {
     }
 
     this.snake = [[1, 1, 1], [1, 2, 1], [1, 3, 1]];
-    this.target = [4, 4, 2];
+    this.target = [4, 4, 3];
     this.dir = 'U';
     this.alive = true;
 
@@ -64,11 +64,9 @@ class SnakeGame {
 
   reset() {
     this.snake = [[1, 1, 1], [1, 2, 1], [1, 3, 1]];
-    this.target = [4, 4, 2];
+    this.target = [4, 4, 0];
     this.dir = 'U';
     this.alive = true;
-
-    bgm.play();
   }
 
   /*
@@ -151,6 +149,10 @@ class SnakeGame {
    */
 
   start() {
+    bgm.addEventListener('ended', function() {
+      this.currentTime = 0;
+      this.play();
+    }, false);
     bgm.play();
 
     this.spActive = true;
@@ -188,7 +190,7 @@ class SnakeGame {
       setTimeout(() => {
         this.reset();
         this.spActive = false;
-      }, 3000);
+      }, 1500);
     }
   }
 
@@ -208,7 +210,7 @@ class SnakeGame {
     setTimeout(() => {
       this.reset();
       this.spActive = false;
-    }, 3000);
+    }, 1500);
 
   }
 
@@ -257,7 +259,7 @@ class SnakeGame {
 
     // Head to body
     if (this.isPointInSnake(nextPoint, nextSnake)) {
-      if (!this.difficulty != 'easy') {
+      if (this.difficulty != 'easy') {
         this.alive = false;
         this.dieAndRevive();
       }
@@ -272,6 +274,8 @@ class SnakeGame {
       this.snake.push(nextPoint);
       // If the length is 8, we win!
       if (this.snake.length == 8) {
+        this.win();
+      } else if (this.snake.length == 5 && this.difficulty != 'easy') {
         this.win();
       }
     } else {
