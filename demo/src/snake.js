@@ -22,10 +22,10 @@ const SNAKE_LOGO = [[3, 1, 0], [4, 1, 0],
                     [2, 5, 0], [5, 5, 0],
                     [3, 6, 0], [4, 6, 0]];
 
-const bgm = new Audio('bgm.mp3');
-const bite = new Audio('bite.mp3');
-const win = new Audio('win.mp3');
-const lose = new Audio('lose.mp3');
+const bgm  = new Audio('audio/bgm.mp3');
+const bite = new Audio('audio/bite.mp3');
+const win  = new Audio('audio/win.mp3');
+const lose = new Audio('audio/lose.mp3');
 
 class SnakeGame {
   constructor(sp, difficulty) {
