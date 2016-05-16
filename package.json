@@ -1,6 +1,6 @@
 {
   "name": "lattice-snake",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Chrome App part of the Snake Game for Magic lattice",
   "dependencies": {
     "lodash": "^4.12.0"
