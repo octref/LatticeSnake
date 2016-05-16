@@ -4,18 +4,18 @@ var gulp = require('gulp'),
     plumber = require('gulp-plumber');
 
 gulp.task('browserify', function() {
-  return gulp.src(['./demo/src/index.js'])
+  return gulp.src(['./chrome/src/index.js'])
     .pipe(plumber())
     .pipe(babel())
     .pipe(browserify({
         debug : true,
         fullPaths: true
     }))
-    .pipe(gulp.dest('./demo/build/'));
+    .pipe(gulp.dest('./chrome/build/'));
 });
 
 gulp.task('watch', function() {
-  gulp.watch(['./demo/src/**/*.js'], ['build']);
+  gulp.watch(['./chrome/src/**/*.js'], ['build']);
 });
 
 gulp.task('build', [
